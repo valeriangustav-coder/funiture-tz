@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 import heroTable from "@/assets/hero-table.jpg";
 import collectionSeating from "@/assets/collection-seating.jpg";
@@ -54,8 +56,86 @@ const collections = [
   },
 ];
 
+const prices: Record<string, number> = {
+  "Dining table": 2450000,
+  "Chair or armchair": 680000,
+  "Sisal-woven top or basket": 340000,
+  "Zanzibar carved door": 1900000,
+};
+const pieceTypes = ["Chair or armchair", "Sisal-woven top or basket", "Zanzibar carved door"];
+const featuredPiece = {
+  name: "The Mzinga Table",
+  blurb:
+    "Mninga hardwood dining table with solid joinery and a hand-rubbed oil finish. 240 × 110 × 74 cm. Made to order in 6–8 weeks.",
+  price: "TZS 2,450,000",
+  tags: ["Mninga hardwood", "Oil finish"],
+  image: heroTable,
+  alt: "Handcrafted mninga hardwood dining table in a Tanzanian joinery workshop",
+  piece: "Dining table",
+};
+const money = (amount: number) => `TZS ${amount.toLocaleString("en-TZ")}`;
+const orderSchema = z.object({
+  id: z.string(),
+  date: z.string(),
+  kind: z.enum(["request", "purchase"]),
+  status: z.enum(["Requested", "Test purchase confirmed", "Cancelled"]),
+  details: z.record(z.string()),
+  quantity: z.number().int().min(1).max(99),
+  total: z.number().nullable(),
+});
+type Order = z.infer<typeof orderSchema>;
+const storageKey = "karibu-test-orders-v1";
+
 function Home() {
-  const [sent, setSent] = useState(false);
+  const [viewedPiece, setViewedPiece] = useState<typeof featuredPiece | null>(null);
+  const pictureTrigger = useRef<HTMLButtonElement | null>(null);
+  const continueToOrder = useRef(false);
+  const [piece, setPiece] = useState("Dining table");
+  const [quantity, setQuantity] = useState(1);
+  const [kind, setKind] = useState<"request" | "purchase">("request");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [review, setReview] = useState<Order | null>(null);
+  const [receipt, setReceipt] = useState<Order | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    try {
+      setOrders(z.array(orderSchema).parse(JSON.parse(localStorage.getItem(storageKey) ?? "[]")));
+    } catch {
+      setError(
+        "Saved test orders could not be loaded. Browser storage may be unavailable or damaged.",
+      );
+    }
+  }, []);
+  const save = (next: Order[]) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+      setOrders(next);
+      setError("");
+      return true;
+    } catch {
+      setError("Could not save your test order. Allow browser storage and try again.");
+      return false;
+    }
+  };
+  const selectPiece = (value: string) => {
+    setPiece(value);
+    setQuantity(1);
+    setReceipt(null);
+    document.getElementById("order")?.scrollIntoView({ behavior: "smooth" });
+    document.getElementById("piece")?.focus({ preventScroll: true });
+  };
+  const download = (order: Order) => {
+    const blob = new Blob([JSON.stringify(order, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${order.id}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -120,13 +200,27 @@ function Home() {
           </div>
 
           <div className="rise lg:col-span-7">
-            <img
-              src={heroTable}
-              alt="Handcrafted mninga hardwood dining table in a Tanzanian joinery workshop"
-              width={1408}
-              height={1008}
-              className="w-full rounded-xl object-cover aspect-[4/3] lg:aspect-[7/5]"
-            />
+            <button
+              type="button"
+              aria-label="View The Mzinga Table"
+              aria-haspopup="dialog"
+              onClick={(event) => {
+                pictureTrigger.current = event.currentTarget;
+                setViewedPiece(featuredPiece);
+              }}
+              className="group relative block w-full cursor-pointer overflow-hidden rounded-xl text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-mninga"
+            >
+              <img
+                src={heroTable}
+                alt="Handcrafted mninga hardwood dining table in a Tanzanian joinery workshop"
+                width={1408}
+                height={1008}
+                className="w-full rounded-xl object-cover aspect-[4/3] lg:aspect-[7/5]"
+              />
+              <span className="absolute bottom-4 right-4 rounded-md bg-paper/95 px-4 py-2 text-sm font-medium text-ink shadow-sm transition-colors group-hover:bg-paper">
+                View piece →
+              </span>
+            </button>
             <div className="mt-4 flex items-start justify-between gap-6 border-t border-border pt-4">
               <div>
                 <p className="font-display text-xl font-medium">The Mzinga Table</p>
@@ -138,6 +232,13 @@ function Home() {
                 TZS 2,450,000
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => selectPiece("Dining table")}
+              className="mt-4 rounded-md bg-mninga px-4 py-2 text-sm text-paper hover:bg-kitenge"
+            >
+              Order this table →
+            </button>
             <div className="mt-4 grid grid-cols-3 gap-4 text-xs text-ink-soft">
               <div>
                 <span className="block text-[10px] uppercase tracking-[0.15em]">Dimensions</span>
@@ -156,7 +257,7 @@ function Home() {
         </section>
 
         {/* Collections */}
-        <section id="collections" className="bg-paper-deep">
+        <section id="collections" className="scroll-mt-24 bg-paper-deep">
           <div className="mx-auto max-w-7xl px-6 py-16">
             <div className="mb-10 flex items-end justify-between gap-6">
               <div>
@@ -172,19 +273,33 @@ function Home() {
             </div>
 
             <div className="grid gap-6 md:grid-cols-3">
-              {collections.map((item) => (
+              {collections.map((item, index) => (
                 <article
                   key={item.name}
                   className="overflow-hidden rounded-xl bg-paper ring-1 ring-border"
                 >
-                  <img
-                    src={item.image}
-                    alt={item.alt}
-                    loading="lazy"
-                    width={816}
-                    height={816}
-                    className="aspect-square w-full object-cover"
-                  />
+                  <button
+                    type="button"
+                    aria-label={`View ${item.name}`}
+                    aria-haspopup="dialog"
+                    onClick={(event) => {
+                      pictureTrigger.current = event.currentTarget;
+                      setViewedPiece({ ...item, piece: pieceTypes[index]! });
+                    }}
+                    className="group relative block w-full cursor-pointer overflow-hidden text-left focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-mninga"
+                  >
+                    <img
+                      src={item.image}
+                      alt={item.alt}
+                      loading="lazy"
+                      width={816}
+                      height={816}
+                      className="aspect-square w-full object-cover"
+                    />
+                    <span className="absolute bottom-4 right-4 rounded-md bg-paper/95 px-4 py-2 text-sm font-medium text-ink shadow-sm transition-colors group-hover:bg-paper">
+                      View piece →
+                    </span>
+                  </button>
                   <div className="p-6">
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -202,6 +317,13 @@ function Home() {
                         </span>
                       ))}
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => selectPiece(pieceTypes[index]!)}
+                      className="mt-5 rounded-md bg-mninga px-4 py-2 text-sm text-paper hover:bg-kitenge"
+                    >
+                      Order this piece →
+                    </button>
                   </div>
                 </article>
               ))}
@@ -210,7 +332,7 @@ function Home() {
         </section>
 
         {/* Workshop story */}
-        <section id="workshop" className="bg-ink text-paper">
+        <section id="workshop" className="scroll-mt-24 bg-ink text-paper">
           <div className="mx-auto grid max-w-7xl items-center gap-10 px-6 py-20 lg:grid-cols-2 lg:gap-16">
             <img
               src={workshopImg}
@@ -244,7 +366,9 @@ function Home() {
                 </div>
                 <div>
                   <p className="font-display text-3xl font-semibold">3</p>
-                  <p className="mt-1 text-xs uppercase tracking-[0.15em] text-paper/60">Materials</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.15em] text-paper/60">
+                    Materials
+                  </p>
                 </div>
                 <div>
                   <p className="font-display text-3xl font-semibold">100%</p>
@@ -258,7 +382,7 @@ function Home() {
         </section>
 
         {/* Place an order */}
-        <section id="order" className="bg-paper">
+        <section id="order" className="scroll-mt-24 bg-paper">
           <div className="mx-auto max-w-7xl px-6 py-16">
             <div className="grid gap-10 lg:grid-cols-12">
               <div className="lg:col-span-8">
@@ -267,22 +391,100 @@ function Home() {
                   Place a custom order.
                 </h2>
                 <p className="mt-4 max-w-[50ch] text-base text-ink-soft">
-                  Tell us what you need. This is an order request, not a checkout — we reply within
-                  one working day to confirm materials, dimensions and a firm TZS price.
+                  Try a custom order or a test purchase. Orders are saved only in this browser.
+                  Nothing is sent to the workshop and no money is charged.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="mt-4 text-sm font-medium text-mninga underline"
+                >
+                  My test orders ({orders.length})
+                </button>
+                {error && (
+                  <p role="alert" className="mt-4 text-sm text-destructive">
+                    {error}
+                  </p>
+                )}
 
                 <form
                   className="mt-10 grid gap-5 sm:grid-cols-2"
                   onSubmit={(e) => {
                     e.preventDefault();
-                    setSent(true);
+                    const details = Object.fromEntries(
+                      Array.from(new FormData(e.currentTarget).entries()).map(([key, value]) => [
+                        key,
+                        String(value).trim(),
+                      ]),
+                    );
+                    const phone = (details["phone"] ?? "").replace(/[^0-9]/g, "");
+                    if (!details["name"] || phone.length < 9 || phone.length > 15) {
+                      setError("Enter your name and a valid phone number (9–15 digits).");
+                      return;
+                    }
+                    if (kind === "purchase" && !prices[piece]) {
+                      setError("Please request a quote for this custom piece.");
+                      return;
+                    }
+                    setError("");
+                    setReceipt(null);
+                    setReview({
+                      id: `TEST-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+                      date: new Date().toISOString(),
+                      kind,
+                      status: kind === "request" ? "Requested" : "Test purchase confirmed",
+                      details,
+                      quantity,
+                      total: prices[piece] ? prices[piece]! * quantity : null,
+                    });
                   }}
                 >
+                  <div>
+                    <label className="field-label" htmlFor="order-kind">
+                      Order option
+                    </label>
+                    <select
+                      id="order-kind"
+                      className="field"
+                      value={kind}
+                      onChange={(e) => setKind(e.target.value as "request" | "purchase")}
+                    >
+                      <option value="request">Custom order request</option>
+                      <option value="purchase" disabled={!prices[piece]}>
+                        Test purchase
+                      </option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="field-label" htmlFor="quantity">
+                      Quantity
+                    </label>
+                    <input
+                      id="quantity"
+                      className="field"
+                      type="number"
+                      min="1"
+                      max="99"
+                      step="1"
+                      required
+                      value={Number.isNaN(quantity) ? "" : quantity}
+                      onChange={(e) => setQuantity(e.target.valueAsNumber)}
+                    />
+                  </div>
                   <div className="sm:col-span-2">
                     <label className="field-label" htmlFor="piece">
                       Type of piece
                     </label>
-                    <select id="piece" className="field" defaultValue="Dining table">
+                    <select
+                      id="piece"
+                      name="piece"
+                      className="field"
+                      value={piece}
+                      onChange={(e) => {
+                        setPiece(e.target.value);
+                        if (!prices[e.target.value]) setKind("request");
+                      }}
+                    >
                       <option>Dining table</option>
                       <option>Chair or armchair</option>
                       <option>Sisal-woven top or basket</option>
@@ -296,7 +498,12 @@ function Home() {
                     <label className="field-label" htmlFor="material">
                       Wood or material
                     </label>
-                    <select id="material" className="field" defaultValue="Mninga (teak)">
+                    <select
+                      id="material"
+                      name="material"
+                      className="field"
+                      defaultValue="Mninga (teak)"
+                    >
                       <option>Mninga (teak)</option>
                       <option>Mvule</option>
                       <option>Sisal weave</option>
@@ -308,14 +515,26 @@ function Home() {
                     <label className="field-label" htmlFor="size">
                       Dimensions (L × W × H, cm)
                     </label>
-                    <input id="size" className="field" type="text" placeholder="240 × 110 × 74" />
+                    <input
+                      id="size"
+                      name="dimensions"
+                      className="field"
+                      type="text"
+                      placeholder="240 × 110 × 74"
+                      maxLength={100}
+                    />
                   </div>
 
                   <div>
                     <label className="field-label" htmlFor="region">
                       Region or city
                     </label>
-                    <select id="region" className="field" defaultValue="Dar es Salaam">
+                    <select
+                      id="region"
+                      name="region"
+                      className="field"
+                      defaultValue="Dar es Salaam"
+                    >
                       <option>Dar es Salaam</option>
                       <option>Zanzibar (Mjini Magharibi)</option>
                       <option>Arusha</option>
@@ -330,7 +549,12 @@ function Home() {
                     <label className="field-label" htmlFor="delivery">
                       Delivery
                     </label>
-                    <select id="delivery" className="field" defaultValue="Workshop collection">
+                    <select
+                      id="delivery"
+                      name="delivery"
+                      className="field"
+                      defaultValue="Workshop collection"
+                    >
                       <option>Workshop collection</option>
                       <option>Local courier (quoted separately)</option>
                       <option>Inter-city freight</option>
@@ -341,7 +565,15 @@ function Home() {
                     <label className="field-label" htmlFor="name">
                       Full name
                     </label>
-                    <input id="name" className="field" type="text" placeholder="Amina Juma" required />
+                    <input
+                      id="name"
+                      name="name"
+                      className="field"
+                      type="text"
+                      placeholder="Amina Juma"
+                      required
+                      maxLength={100}
+                    />
                   </div>
 
                   <div>
@@ -350,6 +582,8 @@ function Home() {
                     </label>
                     <input
                       id="phone"
+                      name="phone"
+                      maxLength={25}
                       className="field"
                       type="tel"
                       placeholder="+255 700 000 000"
@@ -363,6 +597,8 @@ function Home() {
                     </label>
                     <textarea
                       id="notes"
+                      name="notes"
+                      maxLength={2000}
                       rows={3}
                       className="field resize-none"
                       placeholder="Carving pattern, finish, deadline…"
@@ -374,22 +610,45 @@ function Home() {
                       type="submit"
                       className="inline-flex items-center gap-2 rounded-md bg-kitenge py-3 pr-5 pl-4 text-sm font-medium text-paper transition-colors hover:bg-mninga"
                     >
-                      Send order request
+                      Review test order
                       <span aria-hidden>→</span>
                     </button>
                     <p className="text-xs text-ink-soft">
-                      No payment now. We confirm a TZS price first.
+                      {prices[piece] && Number.isInteger(quantity) && quantity > 0
+                        ? `Estimated subtotal: ${money(prices[piece]! * quantity)}. `
+                        : "Custom price to be quoted. "}
+                      Delivery quoted separately. No payment is taken.
                     </p>
                   </div>
 
-                  {sent && (
-                    <p
+                  {receipt && (
+                    <div
                       role="status"
                       className="sm:col-span-2 rounded-md bg-paper-deep px-4 py-3 text-sm text-ink"
                     >
-                      Asante sana — your order request has been noted. We will call or WhatsApp you
-                      within one working day.
-                    </p>
+                      <p className="font-medium">Test order saved — {receipt.id}</p>
+                      <p>
+                        {receipt.status}. Saved in this browser only; no payment or workshop
+                        notification.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => download(receipt)}
+                        className="mt-3 underline"
+                      >
+                        Download receipt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceipt(null);
+                          setQuantity(1);
+                        }}
+                        className="ml-4 underline"
+                      >
+                        Start another order
+                      </button>
+                    </div>
                   )}
                 </form>
               </div>
@@ -429,6 +688,185 @@ function Home() {
         </section>
       </main>
 
+      <Dialog
+        open={!!viewedPiece}
+        onOpenChange={(open) => {
+          if (!open) setViewedPiece(null);
+        }}
+      >
+        <DialogContent
+          className="max-h-[90dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-xl bg-paper text-ink"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            if (continueToOrder.current) {
+              continueToOrder.current = false;
+              document.getElementById("order")?.scrollIntoView({
+                behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                  ? "instant"
+                  : "smooth",
+              });
+              document.getElementById("piece")?.focus({ preventScroll: true });
+            } else {
+              pictureTrigger.current?.focus({ preventScroll: true });
+            }
+          }}
+        >
+          <DialogTitle>{viewedPiece?.name}</DialogTitle>
+          <DialogDescription>{viewedPiece?.blurb}</DialogDescription>
+          {viewedPiece && (
+            <>
+              <img
+                src={viewedPiece.image}
+                alt={viewedPiece.alt}
+                className="aspect-[4/3] w-full rounded-lg object-cover"
+              />
+              <p className="font-display text-2xl font-semibold text-mninga">{viewedPiece.price}</p>
+              <div className="flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-ink-soft">
+                {viewedPiece.tags.map((tag) => (
+                  <span key={tag} className="rounded bg-ink/5 px-2 py-1">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <p className="text-sm text-ink-soft">
+                Continue to choose quantity, materials and delivery. Your selected piece will be
+                filled in for you.
+              </p>
+              <button
+                type="button"
+                className="rounded-md bg-mninga px-5 py-3 text-sm font-medium text-paper transition-colors hover:bg-kitenge"
+                onClick={() => {
+                  setPiece(viewedPiece.piece);
+                  setQuantity(1);
+                  setReceipt(null);
+                  continueToOrder.current = true;
+                  setViewedPiece(null);
+                }}
+              >
+                Continue to order →
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewedPiece(null)}
+                className="text-sm text-ink-soft underline"
+              >
+                Keep browsing
+              </button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={!!review}
+        onOpenChange={(open) => {
+          if (!open) setReview(null);
+        }}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-xl bg-paper text-ink">
+          <DialogTitle>Review your test order</DialogTitle>
+          <DialogDescription>
+            Check your details before saving. No real order or payment will be sent.
+          </DialogDescription>
+          {review && (
+            <>
+              <dl className="space-y-2 text-sm">
+                {Object.entries(review.details).map(([key, value]) => (
+                  <div key={key} className="flex justify-between gap-5">
+                    <dt className="capitalize text-ink-soft">{key}</dt>
+                    <dd className="max-w-[65%] break-words text-right">
+                      {value || "Not specified"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p>Quantity: {review.quantity}</p>
+              <p className="font-semibold">
+                {review.total === null
+                  ? "Price to be quoted"
+                  : `Estimated subtotal: ${money(review.total)}`}
+              </p>
+              <p className="text-xs text-ink-soft">
+                Delivery and final pricing require a workshop quote.{" "}
+                {review.kind === "purchase"
+                  ? "Payment is simulated for testing."
+                  : "This is a test quote request."}
+              </p>
+              {error && (
+                <p role="alert" className="text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+              <button
+                className="rounded-md bg-kitenge px-4 py-3 text-paper hover:bg-mninga"
+                onClick={() => {
+                  if (save([review, ...orders])) {
+                    setReceipt(review);
+                    setReview(null);
+                  }
+                }}
+              >
+                {review.kind === "purchase"
+                  ? "Confirm simulated purchase"
+                  : "Save test order request"}
+              </button>
+              <button className="text-sm underline" onClick={() => setReview(null)}>
+                Back to edit
+              </button>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto rounded-xl bg-paper text-ink">
+          <DialogTitle>My test orders</DialogTitle>
+          <DialogDescription>
+            Orders saved in this browser. No real purchases or payments.
+          </DialogDescription>
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          {!orders.length && <p>No test orders yet. Choose a piece to get started.</p>}
+          {orders.map((order) => (
+            <article key={order.id} className="rounded-md border border-border p-4 text-sm">
+              <h3 className="font-semibold">
+                {order.details["piece"]} × {order.quantity}
+              </h3>
+              <p>
+                {order.id} · {new Date(order.date).toLocaleDateString()}
+              </p>
+              <p>{order.status}</p>
+              <p>{order.total === null ? "Quote requested" : money(order.total)}</p>
+              <details className="mt-2">
+                <summary className="cursor-pointer">Order details</summary>
+                {Object.entries(order.details).map(([key, value]) => (
+                  <p key={key} className="break-words">
+                    <span className="capitalize">{key}</span>: {value || "Not specified"}
+                  </p>
+                ))}
+              </details>
+              <button className="mt-3 underline" onClick={() => download(order)}>
+                Download receipt
+              </button>
+              {order.status !== "Cancelled" && (
+                <button
+                  className="ml-4 underline"
+                  onClick={() => {
+                    const next = orders.map((item) =>
+                      item.id === order.id ? { ...item, status: "Cancelled" as const } : item,
+                    );
+                    if (save(next) && receipt?.id === order.id)
+                      setReceipt({ ...order, status: "Cancelled" });
+                  }}
+                >
+                  Cancel test order
+                </button>
+              )}
+            </article>
+          ))}
+        </DialogContent>
+      </Dialog>
       <footer className="bg-paper-deep">
         <div className="mx-auto flex max-w-7xl flex-col items-start justify-between gap-4 px-6 py-10 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
